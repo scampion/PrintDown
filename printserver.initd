@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+
+description="Python Print Server"
+command="/usr/bin/python3"
+command_args="/opt/printserver/server.py"
+command_user="printserver"
+pidfile="/run/printserver.pid"
+directory="/opt/printserver"
+
+depend() {
+    need net
+    after firewall
+}
+
+start() {
+    ebegin "Starting Print Server"
+    start-stop-daemon --start --background \
+        --make-pidfile --pidfile ${pidfile} \
+        --user ${command_user} --chuid ${command_user} \
+        --chdir ${directory} \
+        --exec ${command} -- ${command_args} >> /var/log/printserver.log 2>&1
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping Print Server"
+    start-stop-daemon --stop --pidfile ${pidfile}
+    eend $?
+}
