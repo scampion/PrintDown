@@ -83,19 +83,17 @@ depend() {
 start() {
     ebegin "Starting Print Server"
     start-stop-daemon --start --background \
-        --make-pidfile --pidfile \
-        --user \
-        --chuid \
-        --chdir \
-        --exec \
-        -- 
-    eend $?
+        --make-pidfile --pidfile "\$pidfile" \
+        --user "\$command_user" \
+        --chdir "\$directory" \
+        --exec "\$command" -- "\$command_args"
+    eend \$?
 }
 
 stop() {
     ebegin "Stopping Print Server"
-    start-stop-daemon --stop --pidfile \
-    eend $?
+    start-stop-daemon --stop --pidfile "\$pidfile"
+    eend \$?
 }
 EOF
     chmod 755 "${INIT_SCRIPT_DEST}"
