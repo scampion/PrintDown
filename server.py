@@ -22,8 +22,7 @@ def print_text_data(data_to_print):
 def print_image_data(image_data):
     """Saves image data to a temporary file and prints it."""
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as 
-temp_image:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_image:
             temp_image.write(image_data)
             temp_image_path = temp_image.name
         
