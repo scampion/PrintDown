@@ -50,7 +50,7 @@ install_dependencies() {
         echo "Error: requirements.txt not found in the current directory." >&2
         exit 1
     fi
-    pip install -r requirements.txt
+    pip install -r requirements.txt --break-system-packages
 }
 
 # Create application directory and copy files
