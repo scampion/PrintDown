@@ -16,7 +16,7 @@ start() {
     ebegin "Starting Print Server"
     start-stop-daemon --start --background \
         --make-pidfile --pidfile ${pidfile} \
-        --user ${command_user} --chuid ${command_user} \
+        --user ${command_user} \
         --chdir ${directory} \
         --exec ${command} -- ${command_args} >> /var/log/printserver.log 2>&1
     eend $?
