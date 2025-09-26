@@ -39,8 +39,7 @@ def print_image_data(image_data):
 
 def start_server(host, port, handler_func):
     """Generic TCP server that uses a given handler function."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as 
-server_socket:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.bind((host, port))
         server_socket.listen()
         print(f"Server listening on {host}:{port}")
