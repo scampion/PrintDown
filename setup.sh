@@ -41,6 +41,8 @@ create_service_user() {
 
 # Install Python dependencies from requirements.txt
 install_dependencies() {
+    echo "Installing system dependencies for USB printing..."
+    apk add --no-cache libusb-compat-dev
     echo "Installing Python dependencies..."
     if ! command -v pip >/dev/null 2>&1; then
         echo "Error: pip is not installed. Please install it to continue." >&2
