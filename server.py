@@ -11,7 +11,7 @@ def print_text_data(data_to_print):
         p = Usb(0x0483, 0x5743, 0)
         p.codepage = "CP437"
         p.text(data_to_print)
-        p.cut()
+        #p.cut()
         print("Text print job successful.")
     except Exception as e:
         print(f"Error during text printing: {e}")
@@ -28,7 +28,7 @@ def print_image_data(image_data):
         
         p = Usb(0x0483, 0x5743, 0)
         p.image(temp_image_path)
-        p.cut()
+        #p.cut()
         os.remove(temp_image_path)
         print("Image print job successful.")
     except Exception as e:
