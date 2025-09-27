@@ -14,7 +14,7 @@ def parse_markdown_formatting(text):
 
     while i < len(text):
         # Check for paper cut pattern (=== at beginning of line)
-        if i == 0 or (i > 0 and text[i - 1] == '\n'):
+        if i == 0 or (i > 0 and text[i-1] == '\n'):
             # We're at the beginning of a line
             if text[i:].startswith('===') and len(text[i:].split('\n')[0].strip('=')) == 0:
                 # Count consecutive = characters
@@ -23,11 +23,11 @@ def parse_markdown_formatting(text):
                 while j < len(text) and text[j] == '=':
                     equals_count += 1
                     j += 1
-
+                
                 if equals_count >= 3:
                     # Add paper cut command
                     result.append(('paper_cut',))
-
+                    
                     # Skip to end of line
                     line_end = text.find('\n', j)
                     if line_end == -1:
@@ -419,3 +419,5 @@ if __name__ == "__main__":
 
     text_thread.join()
     image_thread.join()
+
+
