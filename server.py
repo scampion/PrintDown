@@ -16,11 +16,11 @@ def parse_markdown_formatting(text):
         # Check for paper cut pattern (>>> at beginning of line)
         if i == 0 or (i > 0 and text[i-1] == '\n'):
             # We're at the beginning of a line
-            if text[i:].startswith('>>>') and len(text[i:].split('\n')[0].strip('=')) == 0:
+            if text[i:].startswith('>>>') and len(text[i:].split('\n')[0].strip('>')) == 0:
                 # Count consecutive = characters
                 equals_count = 0
                 j = i
-                while j < len(text) and text[j] == '=':
+                while j < len(text) and text[j] == '>':
                     equals_count += 1
                     j += 1
                 
@@ -164,7 +164,7 @@ def print_markdown_formatted_data(parsed_data):
 
             elif item_type == 'paper_cut':
                 # Add 4 break lines before paper cut
-                p.text('\n\n\n\n')
+                p.text('\n\n')
                 p.cut()
                 print("Paper cut executed with 4 break lines")
 
