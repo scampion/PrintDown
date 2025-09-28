@@ -262,10 +262,12 @@ def print_image_data(image_data):
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_image:
             temp_image.write(image_data)
+            temp_image.flush()
             temp_image_path = temp_image.name
+            print(temp_image_path)
+            p = Usb(0x0483, 0x5743, 0)
+            p.image(temp_image_path)
 
-        p = Usb(0x0483, 0x5743, 0)
-        p.image(temp_image_path)
         os.remove(temp_image_path)
         print("Image print job successful.")
     except Exception as e:
