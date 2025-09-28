@@ -6,6 +6,7 @@ import tempfile
 import os
 import re
 
+p = Usb(0x0483, 0x5743, 0)
 
 def parse_markdown_formatting(text):
     """Parse markdown-like formatting and return structured data."""
@@ -152,8 +153,8 @@ def parse_markdown_formatting(text):
 
 def print_markdown_formatted_data(parsed_data):
     """Print data with markdown formatting applied."""
+    global p
     try:
-        p = Usb(0x0483, 0x5743, 0)
         p.codepage = "CP437"
 
         for item in parsed_data:
@@ -245,8 +246,8 @@ def print_markdown_formatted_data(parsed_data):
 
 def print_text_data(data_to_print):
     """Sends raw text data to the USB printer (fallback for plain text)."""
+    global p
     try:
-        p = Usb(0x0483, 0x5743, 0)
         p.codepage = "CP437"
         p.text(data_to_print)
         print("Plain text print job successful.")
@@ -258,13 +259,13 @@ def print_text_data(data_to_print):
 
 
 def print_image_data(image_data):
+    global p
     """Saves image data to a temporary file and prints it."""
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_image:
             temp_image.write(image_data)
             temp_image_path = temp_image.name
 
-        p = Usb(0x0483, 0x5743, 0)
         p.image(temp_image_path)
         os.remove(temp_image_path)
         print("Image print job successful.")
