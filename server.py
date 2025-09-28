@@ -13,10 +13,10 @@ def parse_markdown_formatting(text):
     i = 0
 
     while i < len(text):
-        # Check for paper cut pattern (=== at beginning of line)
+        # Check for paper cut pattern (>>> at beginning of line)
         if i == 0 or (i > 0 and text[i-1] == '\n'):
             # We're at the beginning of a line
-            if text[i:].startswith('===') and len(text[i:].split('\n')[0].strip('=')) == 0:
+            if text[i:].startswith('>>>') and len(text[i:].split('\n')[0].strip('=')) == 0:
                 # Count consecutive = characters
                 equals_count = 0
                 j = i
@@ -305,7 +305,7 @@ def text_server():
             print(f"Received text data to print:\n---\n{decoded_data}\n---")
 
             # Check if data contains markdown formatting (including paper cut)
-            markdown_patterns = ['**', '__', '~~', '#', '<L>', '<C>', '<R>', '<2H>', '<2W>', '<', 'x', '===']
+            markdown_patterns = ['**', '__', '~~', '#', '<L>', '<C>', '<R>', '<2H>', '<2W>', '<', 'x', '>>>']
             has_markdown = any(pattern in decoded_data for pattern in markdown_patterns)
 
             if has_markdown:
@@ -368,6 +368,8 @@ __Chocolate Chip Cookie__ <R>$1.75</R>
 ======
 
 <4x2>END</4x2>
+
+>>>
 """
     return receipt
 
@@ -404,7 +406,7 @@ if __name__ == "__main__":
     print("<2H>double height</2H>  - Double height text")
     print("<2W>double width</2W>   - Double width text")
     print("<3x2>custom size</3x2>  - Custom size (width x height)")
-    print("=== (3+ at line start)  - Paper cut with 4 break lines")
+    print(">>> (3+ at line start)  - Paper cut with 4 break lines")
     print("=" * 40)
     print()
 
