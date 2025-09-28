@@ -5,8 +5,223 @@ import gc
 import tempfile
 import os
 import re
+import queue
+import time
+from threading import Lock
+from enum import Enum
+from dataclasses import dataclass
+from typing import Union
 
-p = Usb(0x0483, 0x5743, 0)
+
+class PrintJobType(Enum):
+    TEXT = "text"
+    IMAGE = "image"
+
+
+@dataclass
+class PrintJob:
+    job_type: PrintJobType
+    data: Union[str, bytes]
+    client_info: str = ""
+    timestamp: float = None
+
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = time.time()
+
+
+class PrinterManager:
+    """Thread-safe printer manager using a queue-based approach."""
+
+    def __init__(self, vendor_id=0x0483, product_id=0x5743):
+        self.vendor_id = vendor_id
+        self.product_id = product_id
+        self.print_queue = queue.Queue()
+        self.printer_lock = Lock()
+        self.is_running = True
+        self.worker_thread = None
+
+    def start(self):
+        """Start the printer worker thread."""
+        self.worker_thread = threading.Thread(target=self._printer_worker, daemon=True)
+        self.worker_thread.start()
+        print("Printer manager started")
+
+    def stop(self):
+        """Stop the printer manager gracefully."""
+        self.is_running = False
+        # Add a sentinel value to wake up the worker thread
+        self.print_queue.put(None)
+        if self.worker_thread:
+            self.worker_thread.join()
+        print("Printer manager stopped")
+
+    def add_print_job(self, job_type: PrintJobType, data: Union[str, bytes], client_info: str = ""):
+        """Add a print job to the queue."""
+        job = PrintJob(job_type, data, client_info)
+        self.print_queue.put(job)
+        print(f"Print job queued: {job_type.value} from {client_info}")
+
+    def _printer_worker(self):
+        """Worker thread that processes print jobs sequentially."""
+        while self.is_running:
+            try:
+                # Wait for a job (with timeout to check if we should stop)
+                job = self.print_queue.get(timeout=1.0)
+
+                # Check for sentinel value (stop signal)
+                if job is None:
+                    break
+
+                self._process_print_job(job)
+                self.print_queue.task_done()
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"Error in printer worker: {e}")
+
+    def _process_print_job(self, job: PrintJob):
+        """Process a single print job with printer locking."""
+        with self.printer_lock:
+            try:
+                print(f"Processing {job.job_type.value} job from {job.client_info}")
+
+                if job.job_type == PrintJobType.TEXT:
+                    self._print_text_job(job.data)
+                elif job.job_type == PrintJobType.IMAGE:
+                    self._print_image_job(job.data)
+
+                print(f"Completed {job.job_type.value} job from {job.client_info}")
+
+            except Exception as e:
+                print(f"Error processing {job.job_type.value} job from {job.client_info}: {e}")
+            finally:
+                # Small delay between jobs to ensure printer stability
+                time.sleep(0.1)
+
+    def _print_text_job(self, data: str):
+        """Handle text printing with markdown support."""
+        try:
+            p = Usb(self.vendor_id, self.product_id, 0)
+            p.codepage = "CP437"
+
+            # Check if data contains markdown formatting
+            markdown_patterns = ['**', '__', '~~', '#', '<L>', '<C>', '<R>', '<2H>', '<2W>', '<', 'x', '>>>']
+            has_markdown = any(pattern in data for pattern in markdown_patterns)
+
+            if has_markdown:
+                print("Processing markdown formatted text...")
+                parsed_data = parse_markdown_formatting(data)
+                self._print_markdown_formatted_data(p, parsed_data)
+            else:
+                print("Processing plain text...")
+                p.text(data)
+
+        except Exception as e:
+            print(f"Error during text printing: {e}")
+        finally:
+            p = None
+            gc.collect()
+
+    def _print_image_job(self, image_data: bytes):
+        """Handle image printing."""
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_image:
+                temp_image.write(image_data)
+                temp_image_path = temp_image.name
+
+            p = Usb(self.vendor_id, self.product_id, 0)
+            p.image(temp_image_path)
+            os.remove(temp_image_path)
+
+        except Exception as e:
+            print(f"Error during image printing: {e}")
+        finally:
+            p = None
+            gc.collect()
+
+    def _print_markdown_formatted_data(self, p, parsed_data):
+        """Print data with markdown formatting applied."""
+        for item in parsed_data:
+            item_type = item[0]
+
+            if item_type == 'text':
+                p.text(item[1])
+
+            elif item_type == 'paper_cut':
+                p.text('\n\n\n\n')
+                p.cut()
+                print("Paper cut executed with 4 break lines")
+
+            elif item_type == 'format':
+                format_type = item[1]
+                text = item[2]
+
+                if format_type == 'bold':
+                    p.set(bold=True)
+                    p.text(text)
+                    p.set(bold=False)
+
+                elif format_type == 'underline':
+                    p.set(underline=1)
+                    p.text(text)
+                    p.set(underline=0)
+
+                elif format_type == 'invert':
+                    p.set(invert=True)
+                    p.text(text)
+                    p.set(invert=False)
+
+                elif format_type == 'double_height':
+                    p.set(double_height=True)
+                    p.text(text)
+                    p.set(normal_textsize=True)
+
+                elif format_type == 'double_width':
+                    p.set(double_width=True)
+                    p.text(text)
+                    p.set(normal_textsize=True)
+
+            elif item_type == 'header':
+                level = item[1]
+                text = item[2]
+
+                if level == 1:
+                    p.set(double_height=True, double_width=True, bold=True, align='center')
+                elif level == 2:
+                    p.set(double_height=True, bold=True, align='center')
+                elif level == 3:
+                    p.set(double_width=True, bold=True)
+                else:
+                    p.set(bold=True, underline=1)
+
+                p.text(text)
+                p.set(normal_textsize=True)
+
+            elif item_type == 'align':
+                align_type = item[1]
+                text = item[2]
+
+                align_map = {'l': 'left', 'c': 'center', 'r': 'right'}
+                p.set(align=align_map[align_type])
+                p.text(text)
+                p.set(align='left')
+
+            elif item_type == 'custom_size':
+                width = item[1]
+                height = item[2]
+                text = item[3]
+
+                p.set(custom_size=True, width=width, height=height)
+                p.text(text)
+                p.set(normal_textsize=True)
+
+        p.set(normal_textsize=True)
+
+
+# Global printer manager instance
+printer_manager = PrinterManager()
 
 
 def parse_markdown_formatting(text):
@@ -16,20 +231,20 @@ def parse_markdown_formatting(text):
 
     while i < len(text):
         # Check for paper cut pattern (>>> at beginning of line)
-        if i == 0 or (i > 0 and text[i-1] == '\n'):
+        if i == 0 or (i > 0 and text[i - 1] == '\n'):
             # We're at the beginning of a line
-            if text[i:].startswith('>>>') and len(text[i:].split('\n')[0].strip('>')) == 0:
+            if text[i:].startswith('>>>') and len(text[i:].split('\n')[0].strip('=')) == 0:
                 # Count consecutive = characters
                 equals_count = 0
                 j = i
-                while j < len(text) and text[j] == '>':
+                while j < len(text) and text[j] == '=':
                     equals_count += 1
                     j += 1
-                
+
                 if equals_count >= 3:
                     # Add paper cut command
                     result.append(('paper_cut',))
-                    
+
                     # Skip to end of line
                     line_end = text.find('\n', j)
                     if line_end == -1:
@@ -152,186 +367,52 @@ def parse_markdown_formatting(text):
     return result
 
 
-def print_markdown_formatted_data(parsed_data):
-    """Print data with markdown formatting applied."""
-    global p
-    try:
-        p.codepage = "CP437"
-
-        for item in parsed_data:
-            item_type = item[0]
-
-            if item_type == 'text':
-                p.text(item[1])
-
-            elif item_type == 'paper_cut':
-                # Add 4 break lines before paper cut
-                p.text('\n\n')
-                p.cut()
-                print("Paper cut executed with 4 break lines")
-
-            elif item_type == 'format':
-                format_type = item[1]
-                text = item[2]
-
-                if format_type == 'bold':
-                    p.set(bold=True)
-                    p.text(text)
-                    p.set(bold=False)
-
-                elif format_type == 'underline':
-                    p.set(underline=1)
-                    p.text(text)
-                    p.set(underline=0)
-
-                elif format_type == 'invert':
-                    p.set(invert=True)
-                    p.text(text)
-                    p.set(invert=False)
-
-                elif format_type == 'double_height':
-                    p.set(double_height=True)
-                    p.text(text)
-                    p.set(normal_textsize=True)
-
-                elif format_type == 'double_width':
-                    p.set(double_width=True)
-                    p.text(text)
-                    p.set(normal_textsize=True)
-
-            elif item_type == 'header':
-                level = item[1]
-                text = item[2]
-
-                # Different header sizes based on level
-                if level == 1:  # # Header - largest
-                    p.set(double_height=True, double_width=True, bold=True, align='center')
-                elif level == 2:  # ## Header - large
-                    p.set(double_height=True, bold=True, align='center')
-                elif level == 3:  # ### Header - medium
-                    p.set(double_width=True, bold=True)
-                else:  # #### and beyond - small headers
-                    p.set(bold=True, underline=1)
-
-                p.text(text)
-                p.set(normal_textsize=True)
-
-            elif item_type == 'align':
-                align_type = item[1]  # 'l', 'c', or 'r'
-                text = item[2]
-
-                align_map = {'l': 'left', 'c': 'center', 'r': 'right'}
-                p.set(align=align_map[align_type])
-                p.text(text)
-                p.set(align='left')  # Reset to left
-
-            elif item_type == 'custom_size':
-                width = item[1]
-                height = item[2]
-                text = item[3]
-
-                p.set(custom_size=True, width=width, height=height)
-                p.text(text)
-                p.set(normal_textsize=True)
-
-        # Final reset
-        p.set(normal_textsize=True)
-
-        print("Markdown formatted text print job successful.")
-    except Exception as e:
-        print(f"Error during markdown formatted text printing: {e}")
-    finally:
-        p = None
-        gc.collect()
-
-
-def print_text_data(data_to_print):
-    """Sends raw text data to the USB printer (fallback for plain text)."""
-    global p
-    try:
-        p.codepage = "CP437"
-        p.text(data_to_print)
-        print("Plain text print job successful.")
-    except Exception as e:
-        print(f"Error during text printing: {e}")
-    finally:
-        p = None
-        gc.collect()
-
-
-def print_image_data(image_data):
-    """Saves image data to a temporary file and prints it."""
-    global p
-    try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_image:
-            temp_image.write(image_data)
-            temp_image.flush()
-            temp_image_path = temp_image.name
-            print(temp_image_path)
-            p.image(temp_image_path)
-
-        os.remove(temp_image_path)
-        print("Image print job successful.")
-    except Exception as e:
-        print(f"Error during image printing: {e}")
-    finally:
-        p = None
-        gc.collect()
-
-
 def start_server(host, port, handler_func):
     """Generic TCP server that uses a given handler function."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server_socket.bind((host, port))
         server_socket.listen()
         print(f"Server listening on {host}:{port}")
         while True:
-            conn, addr = server_socket.accept()
-            with conn:
-                print(f"Connection from {addr} on port {port}")
-                full_data = b""
-                while True:
-                    chunk = conn.recv(1024)
-                    if not chunk:
-                        break
-                    full_data += chunk
+            try:
+                conn, addr = server_socket.accept()
+                with conn:
+                    print(f"Connection from {addr} on port {port}")
+                    full_data = b""
+                    while True:
+                        chunk = conn.recv(1024)
+                        if not chunk:
+                            break
+                        full_data += chunk
 
-                if full_data:
-                    handler_func(full_data)
+                    if full_data:
+                        handler_func(full_data, f"{addr[0]}:{addr[1]}")
+            except Exception as e:
+                print(f"Server error on port {port}: {e}")
 
 
 def text_server():
-    """Wrapper to handle markdown formatted text data."""
+    """Text server that queues print jobs."""
 
-    def text_handler(data):
+    def text_handler(data, client_info):
         try:
             decoded_data = data.decode('cp437', errors='ignore')
-            print(f"Received text data to print:\n---\n{decoded_data}\n---")
-
-            # Check if data contains markdown formatting (including paper cut)
-            markdown_patterns = ['**', '__', '~~', '#', '<L>', '<C>', '<R>', '<2H>', '<2W>', '<', 'x', '>>>']
-            has_markdown = any(pattern in decoded_data for pattern in markdown_patterns)
-
-            if has_markdown:
-                print("Processing markdown formatted text...")
-                parsed_data = parse_markdown_formatting(decoded_data)
-                print_markdown_formatted_data(parsed_data)
-            else:
-                print("Processing plain text...")
-                print_text_data(decoded_data)
-
+            print(
+                f"Received text data from {client_info}:\n---\n{decoded_data[:100]}{'...' if len(decoded_data) > 100 else ''}\n---")
+            printer_manager.add_print_job(PrintJobType.TEXT, decoded_data, client_info)
         except Exception as e:
-            print(f"Error handling text data: {e}")
+            print(f"Error handling text data from {client_info}: {e}")
 
     start_server('0.0.0.0', 9100, text_handler)
 
 
 def image_server():
-    """Wrapper for the image handler."""
+    """Image server that queues print jobs."""
 
-    def image_handler(data):
-        print(f"Received {len(data)} bytes of image data to print.")
-        print_image_data(data)
+    def image_handler(data, client_info):
+        print(f"Received {len(data)} bytes of image data from {client_info}")
+        printer_manager.add_print_job(PrintJobType.IMAGE, data, client_info)
 
     start_server('0.0.0.0', 9101, image_handler)
 
@@ -359,7 +440,7 @@ __Chocolate Chip Cookie__ <R>$1.75</R>
 <C>Thank you for your visit!</C>
 <C>Please come again!</C>
 
-===
+>>>
 
 # SECOND RECEIPT
 ## Another Transaction
@@ -369,11 +450,9 @@ __Chocolate Chip Cookie__ <R>$1.75</R>
 
 **TOTAL: $8.00**
 
-======
+>>>
 
 <4x2>END</4x2>
-
->>>
 """
     return receipt
 
@@ -390,13 +469,14 @@ def test_markdown_formatting():
     for item in parsed:
         print(f"  {item}")
 
-    # Uncomment to actually print:
-    # print_markdown_formatted_data(parsed)
+    # Queue the test print job
+    printer_manager.add_print_job(PrintJobType.TEXT, sample, "test")
 
 
 if __name__ == "__main__":
+    print("Thread-Safe Printer Server with Queue Management")
+    print("=" * 50)
     print("Markdown Formatting Guide:")
-    print("=" * 40)
     print("**bold text**           - Bold formatting")
     print("__underlined text__     - Underlined text")
     print("~~inverted text~~       - White on black")
@@ -411,19 +491,30 @@ if __name__ == "__main__":
     print("<2W>double width</2W>   - Double width text")
     print("<3x2>custom size</3x2>  - Custom size (width x height)")
     print(">>> (3+ at line start)  - Paper cut with 4 break lines")
-    print("=" * 40)
+    print("=" * 50)
     print()
 
-    # Uncomment to test formatting
-    # test_markdown_formatting()
+    # Start the printer manager
+    printer_manager.start()
 
-    text_thread = threading.Thread(target=text_server)
-    image_thread = threading.Thread(target=image_server)
+    try:
+        # Uncomment to test formatting
+        # test_markdown_formatting()
 
-    text_thread.start()
-    image_thread.start()
+        # Start server threads
+        text_thread = threading.Thread(target=text_server, daemon=True)
+        image_thread = threading.Thread(target=image_server, daemon=True)
 
-    text_thread.join()
-    image_thread.join()
+        text_thread.start()
+        image_thread.start()
 
+        print("Servers started. Press Ctrl+C to stop.")
 
+        # Keep main thread alive
+        text_thread.join()
+        image_thread.join()
+
+    except KeyboardInterrupt:
+        print("\nShutting down...")
+    finally:
+        printer_manager.stop()
