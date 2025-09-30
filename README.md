@@ -118,3 +118,9 @@ cat receipt.txt | nc <server_ip> 9100
 | `<2W>double width</2W>` | Double width text                          |
 | `<3x2>custom</3x2>`     | Custom size (Width x Height)               |
 | `===` (on a new line)   | Cut the paper                              |
+
+
+## Tips
+
+	sudo iptables -t nat -A PREROUTING -p tcp --dport 631 -j REDIRECT --to-port 6310
+
