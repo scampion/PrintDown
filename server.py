@@ -11,6 +11,13 @@ from threading import Lock
 from enum import Enum
 from dataclasses import dataclass
 from typing import Union
+from dotenv import load_dotenv
+import ippserver
+import markitdown
+from zeroconf import ServiceInfo, Zeroconf
+
+
+load_dotenv()
 
 
 class PrintJobType(Enum):
@@ -33,9 +40,9 @@ class PrintJob:
 class PrinterManager:
     """Thread-safe printer manager using a queue-based approach."""
 
-    def __init__(self, vendor_id=0x0483, product_id=0x5743):
-        self.vendor_id = vendor_id
-        self.product_id = product_id
+    def __init__(self):
+        self.vendor_id = int(os.getenv("VENDOR_ID", "0x0483"), 16)
+        self.product_id = int(os.getenv("PRODUCT_ID", "0x5743"), 16)
         self.print_queue = queue.Queue()
         self.printer_lock = Lock()
         self.is_running = True
@@ -417,6 +424,117 @@ def image_server():
     start_server('0.0.0.0', 9101, image_handler)
 
 
+def ipp_server():
+    """IPP server that converts documents to markdown and queues them for printing."""
+
+    class MarkdownIPPHandler(ippserver.IPPHandler):
+        def print_job(self, data):
+            client_info = f"{self.client_address[0]}:{self.client_address[1]}"
+            print(f"Received IPP data from {client_info}")
+
+            try:
+                # Create a temporary file to store the received data
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    temp_file.write(data)
+                    temp_file_path = temp_file.name
+
+                # Convert the file to markdown
+                markdown_text = markitdown.convert(temp_file_path)
+                os.remove(temp_file_path)
+
+                print(
+                    f"Converted IPP data to markdown:\n---\n{markdown_text[:100]}{'...' if len(markdown_text) > 100 else ''}\n---")
+                printer_manager.add_print_job(PrintJobType.TEXT, markdown_text, client_info)
+
+                return ippserver.ipp.STATUS_OK
+
+            except Exception as e:
+                print(f"Error handling IPP data from {client_info}: {e}")
+                return ippserver.ipp.STATUS_ERROR_INTERNAL
+
+    print("Starting IPP server on 0.0.0.0:631")
+    ippserver.IPPPrinter(
+        name="PrintDown",
+        host="0.0.0.0",
+        port=631,
+        handler=MarkdownIPPHandler,
+        supported_formats=["application/pdf", "application/postscript", "text/plain"],
+    ).run()
+
+
+zeroconf = None
+
+
+def get_local_ip():
+    """Get the local IP address of the machine."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Doesn't even have to be reachable
+        s.connect(('10.255.255.255', 1))
+        ip = s.getsockname()[0]
+    except Exception:
+        ip = '127.0.0.1'
+    finally:
+        s.close()
+    return ip
+
+
+def start_discovery():
+    """Register the IPP, text, and image services with Zeroconf."""
+    global zeroconf
+    zeroconf = Zeroconf()
+    ip_address = get_local_ip()
+    hostname = socket.gethostname()
+
+    # IPP Service
+    ipp_info = ServiceInfo(
+        "_ipp._tcp.local.",
+        f"{hostname}._ipp._tcp.local.",
+        addresses=[socket.inet_aton(ip_address)],
+        port=631,
+        properties={'rp': 'ipp/print', 'ty': 'PrintDown IPP Printer'},
+        server=f"{hostname}.local.",
+    )
+    zeroconf.register_service(ipp_info)
+    print(f"Registered IPP service on {ip_address}:631")
+
+    # Raw Text Service (Port 9100)
+    text_info = ServiceInfo(
+        "_pdl-datastream._tcp.local.",
+        f"{hostname} Text._pdl-datastream._tcp.local.",
+        addresses=[socket.inet_aton(ip_address)],
+        port=9100,
+        properties={'ty': 'PrintDown Raw Text'},
+        server=f"{hostname}.local.",
+    )
+    zeroconf.register_service(text_info)
+    print(f"Registered Raw Text service on {ip_address}:9100")
+
+    # Raw Image Service (Port 9101)
+    image_info = ServiceInfo(
+        "_pdl-datastream._tcp.local.",
+        f"{hostname} Image._pdl-datastream._tcp.local.",
+        addresses=[socket.inet_aton(ip_address)],
+        port=9101,
+        properties={'ty': 'PrintDown Raw Image'},
+        server=f"{hostname}.local.",
+    )
+    zeroconf.register_service(image_info)
+    print(f"Registered Raw Image service on {ip_address}:9101")
+
+
+def stop_discovery():
+    """Unregister all services and close Zeroconf."""
+    global zeroconf
+    if zeroconf:
+        print("Unregistering services...")
+        zeroconf.unregister_all_services()
+        zeroconf.close()
+
+
+
+
+
 def create_sample_receipt():
     """Create a sample receipt with markdown formatting."""
     receipt = """# COFFEE SHOP
@@ -496,6 +614,7 @@ if __name__ == "__main__":
 
     # Start the printer manager
     printer_manager.start()
+    start_discovery()
 
     try:
         # Uncomment to test formatting
@@ -504,17 +623,21 @@ if __name__ == "__main__":
         # Start server threads
         text_thread = threading.Thread(target=text_server, daemon=True)
         image_thread = threading.Thread(target=image_server, daemon=True)
+        ipp_thread = threading.Thread(target=ipp_server, daemon=True)
 
         text_thread.start()
         image_thread.start()
+        ipp_thread.start()
 
         print("Servers started. Press Ctrl+C to stop.")
 
         # Keep main thread alive
         text_thread.join()
         image_thread.join()
+        ipp_thread.join()
 
     except KeyboardInterrupt:
         print("\nShutting down...")
     finally:
+        stop_discovery()
         printer_manager.stop()
