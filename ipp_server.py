@@ -307,7 +307,8 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             response.append(0x22)  # boolean tag
             response.extend(struct.pack('>H', 26))  # "printer-is-accepting-jobs"
             response.extend(b'printer-is-accepting-jobs')
-            response.extend(struct.pack('>H', 1))  # MUST be 1 byte
+            response.extend(struct.pack('>B', 1))  # Use 'B' for 1 byte
+
             response.append(0x01)  # true
 
             # operations-supported
