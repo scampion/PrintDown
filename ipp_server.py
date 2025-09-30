@@ -177,7 +177,6 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             self._add_ipp_attribute(response, 0x04, 'job-priority-supported', '50', 0x21)
             self._add_ipp_attribute(response, 0x04, 'job-sheets-supported', 'none', 0x44)
 
-
             # printer-state: 3 = idle
             response.append(0x23)
             response.extend(struct.pack('>H', 13))
