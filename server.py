@@ -577,8 +577,11 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
 
 def ipp_server():
     """Simple IPP server using standard HTTP server."""
-    print("Starting IPP server on 0.0.0.0:631")
-    server = HTTPServer(('0.0.0.0', 631), SimpleIPPHandler)
+    # Use port from environment variable, default to 6310 (non-privileged port)
+    ipp_port = int(os.getenv("IPP_PORT", "6310"))
+    print(f"Starting IPP server on 0.0.0.0:{ipp_port}")
+    print(f"Note: Standard IPP port is 631, but we're using {ipp_port} to avoid requiring root privileges")
+    server = HTTPServer(('0.0.0.0', ipp_port), SimpleIPPHandler)
     server.serve_forever()
 
 
@@ -605,18 +608,21 @@ def start_discovery():
     zeroconf = Zeroconf()
     ip_address = get_local_ip()
     hostname = socket.gethostname()
+    
+    # Get IPP port from environment
+    ipp_port = int(os.getenv("IPP_PORT", "6310"))
 
     # IPP Service
     ipp_info = ServiceInfo(
         "_ipp._tcp.local.",
         f"{hostname}._ipp._tcp.local.",
         addresses=[socket.inet_aton(ip_address)],
-        port=631,
+        port=ipp_port,
         properties={'rp': 'ipp/print', 'ty': 'PrintDown IPP Printer'},
         server=f"{hostname}.local.",
     )
     zeroconf.register_service(ipp_info)
-    print(f"Registered IPP service on {ip_address}:631")
+    print(f"Registered IPP service on {ip_address}:{ipp_port}")
 
     # Raw Text Service (Port 9100)
     text_info = ServiceInfo(
