@@ -372,6 +372,8 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
         # End of attributes
         response.append(0x03)
 
+        # Debug the response structures
+        self._debug_response(response)
         self.send_response(200)
         self.send_header('Content-Type', 'application/ipp')
         self.send_header('Content-Length', str(len(response)))
