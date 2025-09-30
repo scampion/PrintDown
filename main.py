@@ -2,15 +2,32 @@
 import threading
 from dotenv import load_dotenv
 
-from printer_manager import PrinterManager
+from printer_manager import PrinterManager, PrintJobType
 from tcp_servers import create_text_server, create_image_server
 from ipp_server import create_ipp_server
 from discovery_service import DiscoveryService
-from test_utils import print_help, test_markdown_formatting
 
 
 # Load environment variables
 load_dotenv()
+
+
+def print_help():
+    """Print help information about available services."""
+    print("PrintDown Server Started!")
+    print("Available services:")
+    print("- Text server: port 9100")
+    print("- Image server: port 9101")
+    print("- IPP server: port 631")
+    print("")
+    print("Send text, images, or IPP print jobs to these ports.")
+
+
+def test_markdown_formatting(printer_manager):
+    """Test markdown formatting with the printer."""
+    test_text = "# Header\n**Bold text** and *italic text*\n- List item 1\n- List item 2"
+    print("Testing markdown formatting...")
+    printer_manager.add_print_job(PrintJobType.TEXT, test_text, "test")
 
 
 def main():
