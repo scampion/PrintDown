@@ -103,9 +103,11 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             import traceback
             traceback.print_exc()
             self._send_ipp_response(0x0500, request_id=request_id)
-    
+
     def _handle_get_printer_attributes(self, request_id):
-        """Handle Get-Printer-Attributes request."""
+        """Handle Get-Printer-Attributes request with debug info."""
+        print(f"Get-Printer-Attributes request headers: {dict(self.headers)}")
+        # Parse and print requested attributes if present
         self._send_ipp_response(0x0000, include_printer_attrs=True, request_id=request_id)
     
     def _handle_validate_job(self, request_id):
@@ -161,7 +163,21 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             self._add_ipp_attribute(response, 0x04, 'printer-location', 'Local', 0x42)
             self._add_ipp_attribute(response, 0x04, 'printer-info', 'PrintDown Markdown Printer', 0x42)
             self._add_ipp_attribute(response, 0x04, 'printer-make-and-model', 'PrintDown v1.0', 0x42)
-            
+
+            self._add_ipp_attribute(response, 0x04, 'uri-security-supported', 'none', 0x44)
+            self._add_ipp_attribute(response, 0x04, 'uri-authentication-supported', 'none', 0x44)
+            self._add_ipp_attribute(response, 0x04, 'charset-supported', 'utf-8', 0x47)
+            self._add_ipp_attribute(response, 0x04, 'natural-language-supported', 'en-us', 0x48)
+
+            # Add printer-more-info
+            printer_uri = f'http://{get_local_ip()}:{ipp_port}/ipp/print'
+            self._add_ipp_attribute(response, 0x04, 'printer-more-info', printer_uri, 0x45)
+
+            # Add job-priority and job-sheets support
+            self._add_ipp_attribute(response, 0x04, 'job-priority-supported', '50', 0x21)
+            self._add_ipp_attribute(response, 0x04, 'job-sheets-supported', 'none', 0x44)
+
+
             # printer-state: 3 = idle
             response.append(0x23)
             response.extend(struct.pack('>H', 13))
