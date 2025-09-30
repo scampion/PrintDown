@@ -305,10 +305,10 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
 
             # printer-is-accepting-jobs
             response.append(0x22)  # boolean tag
-            response.extend(struct.pack('>H', 26))  # "printer-is-accepting-jobs"
+            response.extend(struct.pack('>H', 26))  # name length
             response.extend(b'printer-is-accepting-jobs')
             response.extend(struct.pack('>H', 1))  # value length = 1
-            response.extend(struct.pack('B', 0x01))  # true (1 byte)
+            response.append(0x01)  # boolean true value
 
             # operations-supported
             ops = [0x0002, 0x0004, 0x0005, 0x0008, 0x0009, 0x000A, 0x000B]
@@ -372,7 +372,8 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
         # End of attributes
         response.append(0x03)
 
-        # Debug the response structures
+        # Debug the response structure
+
         self._debug_response(response)
         self.send_response(200)
         self.send_header('Content-Type', 'application/ipp')
