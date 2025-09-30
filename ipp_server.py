@@ -374,7 +374,6 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
 
         # Debug the response structure
 
-        self._debug_response(response)
         self.send_response(200)
         self.send_header('Content-Type', 'application/ipp')
         self.send_header('Content-Length', str(len(response)))
