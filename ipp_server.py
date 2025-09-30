@@ -207,77 +207,80 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
         """Handle Get-Jobs request."""
         print("Get-Jobs: Returning empty job list")
         self._send_ipp_response(0x0000, request_id=request_id)
-    
-    def _send_ipp_response(self, status_code, include_printer_attrs=False, include_job_attrs=False, request_id=1, requested_attrs=None):
+
+    def _send_ipp_response(self, status_code, include_printer_attrs=False, include_job_attrs=False, request_id=1,
+                           requested_attrs=None):
         """Send a simple IPP response."""
         response = bytearray()
         response.extend([0x02, 0x00])  # IPP version 2.0
         response.extend(struct.pack('>H', status_code))
         response.extend(struct.pack('>I', request_id))
-        
-        # Operation attributes group
+
+        # Operation attributes group (REQUIRED)
         response.append(0x01)
+
+        # attributes-charset
+        response.append(0x47)  # charset tag
         response.extend(struct.pack('>H', 18))  # "attributes-charset"
         response.extend(b'attributes-charset')
-        response.append(0x47)  # charset tag
-        response.extend(struct.pack('>H', 0))  # no name
         response.extend(struct.pack('>H', 5))  # "utf-8"
         response.extend(b'utf-8')
-        
+
+        # attributes-natural-language
         response.append(0x48)  # naturalLanguage tag
         response.extend(struct.pack('>H', 27))  # "attributes-natural-language"
         response.extend(b'attributes-natural-language')
         response.extend(struct.pack('>H', 5))  # "en-us"
         response.extend(b'en-us')
-        
+
         if include_job_attrs:
             # Job attributes group
             response.append(0x02)
-            
+
             ipp_port = int(os.getenv("IPP_PORT", "6310"))
             job_uri = f'ipp://{get_local_ip()}:{ipp_port}/ipp/print/1'
-            
+
             response.append(0x45)  # uri tag
             response.extend(struct.pack('>H', 7))  # "job-uri"
             response.extend(b'job-uri')
             response.extend(struct.pack('>H', len(job_uri)))
             response.extend(job_uri.encode())
-            
+
             # job-id
             response.append(0x21)  # integer tag
             response.extend(struct.pack('>H', 6))  # "job-id"
             response.extend(b'job-id')
             response.extend(struct.pack('>H', 4))
             response.extend(struct.pack('>I', 1))
-            
+
             # job-state: 9 = completed
             response.append(0x23)  # enum tag
             response.extend(struct.pack('>H', 9))  # "job-state"
             response.extend(b'job-state')
             response.extend(struct.pack('>H', 4))
             response.extend(struct.pack('>I', 9))
-            
+
             response.append(0x44)  # keyword tag
             response.extend(struct.pack('>H', 17))  # "job-state-reasons"
             response.extend(b'job-state-reasons')
             reason = b'job-completed-successfully'
             response.extend(struct.pack('>H', len(reason)))
             response.extend(reason)
-        
+
         if include_printer_attrs:
             # Printer attributes group
             response.append(0x04)
-            
+
             ipp_port = int(os.getenv("IPP_PORT", "6310"))
             printer_uri = f'ipp://{get_local_ip()}:{ipp_port}/ipp/print'
-            
+
             # printer-uri-supported
             response.append(0x45)  # uri tag
             response.extend(struct.pack('>H', 21))  # "printer-uri-supported"
             response.extend(b'printer-uri-supported')
             response.extend(struct.pack('>H', len(printer_uri)))
             response.extend(printer_uri.encode())
-            
+
             # printer-name
             response.append(0x42)  # nameWithoutLanguage tag
             response.extend(struct.pack('>H', 12))  # "printer-name"
@@ -285,28 +288,28 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             name = b'PrintDown'
             response.extend(struct.pack('>H', len(name)))
             response.extend(name)
-            
+
             # printer-state: 3 = idle
             response.append(0x23)  # enum tag
             response.extend(struct.pack('>H', 13))  # "printer-state"
             response.extend(b'printer-state')
             response.extend(struct.pack('>H', 4))
             response.extend(struct.pack('>I', 3))
-            
+
             # printer-state-reasons
             response.append(0x44)  # keyword tag
             response.extend(struct.pack('>H', 21))  # "printer-state-reasons"
             response.extend(b'printer-state-reasons')
             response.extend(struct.pack('>H', 4))
             response.extend(b'none')
-            
+
             # printer-is-accepting-jobs
             response.append(0x22)  # boolean tag
             response.extend(struct.pack('>H', 26))  # "printer-is-accepting-jobs"
             response.extend(b'printer-is-accepting-jobs')
             response.extend(struct.pack('>H', 1))  # MUST be 1 byte
             response.append(0x01)  # true
-            
+
             # operations-supported
             ops = [0x0002, 0x0004, 0x0005, 0x0008, 0x0009, 0x000A, 0x000B]
             for i, op in enumerate(ops):
@@ -318,10 +321,10 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
                     response.extend(struct.pack('>H', 0))  # additional value
                 response.extend(struct.pack('>H', 4))
                 response.extend(struct.pack('>I', op))
-            
+
             # document-format-supported
-            formats = [b'application/pdf', b'application/postscript', 
-                      b'text/plain', b'application/octet-stream']
+            formats = [b'application/pdf', b'application/postscript',
+                       b'text/plain', b'application/octet-stream']
             for i, fmt in enumerate(formats):
                 response.append(0x49)  # mimeMediaType tag
                 if i == 0:
@@ -331,7 +334,7 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
                     response.extend(struct.pack('>H', 0))  # additional value
                 response.extend(struct.pack('>H', len(fmt)))
                 response.extend(fmt)
-            
+
             # document-format-default
             response.append(0x49)  # mimeMediaType tag
             response.extend(struct.pack('>H', 23))  # "document-format-default"
@@ -339,21 +342,21 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             fmt = b'application/pdf'
             response.extend(struct.pack('>H', len(fmt)))
             response.extend(fmt)
-            
+
             # compression-supported
             response.append(0x44)  # keyword tag
             response.extend(struct.pack('>H', 21))  # "compression-supported"
             response.extend(b'compression-supported')
             response.extend(struct.pack('>H', 4))
             response.extend(b'none')
-            
+
             # charset-supported
             response.append(0x47)  # charset tag
             response.extend(struct.pack('>H', 17))  # "charset-supported"
             response.extend(b'charset-supported')
             response.extend(struct.pack('>H', 5))
             response.extend(b'utf-8')
-            
+
             # ipp-versions-supported
             versions = [b'1.1', b'2.0']
             for i, ver in enumerate(versions):
@@ -365,10 +368,10 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
                     response.extend(struct.pack('>H', 0))  # additional value
                 response.extend(struct.pack('>H', len(ver)))
                 response.extend(ver)
-        
+
         # End of attributes
         response.append(0x03)
-        
+
         self.send_response(200)
         self.send_header('Content-Type', 'application/ipp')
         self.send_header('Content-Length', str(len(response)))
