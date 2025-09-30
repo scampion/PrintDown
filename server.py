@@ -12,9 +12,10 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Union
 from dotenv import load_dotenv
-import ippserver
 import markitdown
 from zeroconf import ServiceInfo, Zeroconf
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import struct
 
 
 load_dotenv()
@@ -424,42 +425,161 @@ def image_server():
     start_server('0.0.0.0', 9101, image_handler)
 
 
-def ipp_server():
-    """IPP server that converts documents to markdown and queues them for printing."""
-
-    class MarkdownIPPHandler(ippserver.IPPHandler):
-        def print_job(self, data):
-            client_info = f"{self.client_address[0]}:{self.client_address[1]}"
-            print(f"Received IPP data from {client_info}")
-
-            try:
-                # Create a temporary file to store the received data
-                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                    temp_file.write(data)
+class SimpleIPPHandler(BaseHTTPRequestHandler):
+    """Simple IPP request handler that converts documents to markdown."""
+    
+    def do_POST(self):
+        """Handle IPP POST requests."""
+        client_info = f"{self.client_address[0]}:{self.client_address[1]}"
+        
+        try:
+            # Read content
+            content_length = int(self.headers.get('Content-Length', 0))
+            request_data = self.rfile.read(content_length)
+            
+            # Parse IPP header (simplified)
+            if len(request_data) < 8:
+                self.send_error(400, "Invalid IPP request")
+                return
+            
+            # IPP version and operation
+            version_major = request_data[0]
+            version_minor = request_data[1]
+            operation_id = struct.unpack('>H', request_data[2:4])[0]
+            
+            print(f"IPP Request from {client_info}: version={version_major}.{version_minor}, operation=0x{operation_id:04x}")
+            
+            # Handle different IPP operations
+            if operation_id == 0x0002:  # Print-Job
+                self._handle_print_job(request_data, client_info)
+            elif operation_id == 0x000B:  # Get-Printer-Attributes
+                self._handle_get_printer_attributes()
+            elif operation_id == 0x0004:  # Validate-Job
+                self._handle_validate_job()
+            else:
+                print(f"Unsupported IPP operation: 0x{operation_id:04x}")
+                self._send_ipp_response(0x0501)  # server-error-operation-not-supported
+                
+        except Exception as e:
+            print(f"Error handling IPP request from {client_info}: {e}")
+            self.send_error(500, f"Internal error: {e}")
+    
+    def _handle_print_job(self, request_data, client_info):
+        """Handle IPP Print-Job operation."""
+        try:
+            # Find document data (after IPP attributes, marked by end-of-attributes tag 0x03)
+            end_of_attrs_pos = request_data.find(b'\x03')
+            if end_of_attrs_pos == -1:
+                self.send_error(400, "Invalid IPP request: no end-of-attributes tag")
+                return
+            
+            document_data = request_data[end_of_attrs_pos + 1:]
+            
+            if len(document_data) > 0:
+                # Save to temp file and convert
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                    temp_file.write(document_data)
                     temp_file_path = temp_file.name
+                
+                try:
+                    # Convert to markdown
+                    md = markitdown.MarkItDown()
+                    result = md.convert(temp_file_path)
+                    markdown_text = result.text_content
+                    
+                    print(f"Converted document to markdown:\n---\n{markdown_text[:100]}{'...' if len(markdown_text) > 100 else ''}\n---")
+                    printer_manager.add_print_job(PrintJobType.TEXT, markdown_text, client_info)
+                    
+                finally:
+                    os.remove(temp_file_path)
+                
+                self._send_ipp_response(0x0000)  # successful-ok
+            else:
+                self.send_error(400, "No document data")
+                
+        except Exception as e:
+            print(f"Error processing print job: {e}")
+            self._send_ipp_response(0x0500)  # server-error-internal-error
+    
+    def _handle_get_printer_attributes(self):
+        """Handle Get-Printer-Attributes request."""
+        self._send_ipp_response(0x0000, include_printer_attrs=True)
+    
+    def _handle_validate_job(self):
+        """Handle Validate-Job request."""
+        self._send_ipp_response(0x0000)  # successful-ok
+    
+    def _send_ipp_response(self, status_code, include_printer_attrs=False):
+        """Send a simple IPP response."""
+        # Build IPP response
+        response = bytearray()
+        response.extend([0x01, 0x01])  # IPP version 1.1
+        response.extend(struct.pack('>H', status_code))
+        response.extend(struct.pack('>I', 1))  # request-id
+        
+        # Attributes
+        response.append(0x01)  # operation-attributes-tag
+        
+        # attributes-charset
+        response.append(0x47)  # charset type
+        response.extend(struct.pack('>H', 18))  # name length
+        response.extend(b'attributes-charset')
+        response.extend(struct.pack('>H', 5))  # value length
+        response.extend(b'utf-8')
+        
+        # attributes-natural-language
+        response.append(0x48)  # natural-language type
+        response.extend(struct.pack('>H', 27))  # name length
+        response.extend(b'attributes-natural-language')
+        response.extend(struct.pack('>H', 5))  # value length
+        response.extend(b'en-us')
+        
+        if include_printer_attrs:
+            # Add minimal printer attributes
+            response.append(0x04)  # printer-attributes-tag
+            
+            # printer-uri-supported
+            response.append(0x45)  # uri type
+            response.extend(struct.pack('>H', 20))
+            response.extend(b'printer-uri-supported')
+            printer_uri = b'ipp://localhost:631/'
+            response.extend(struct.pack('>H', len(printer_uri)))
+            response.extend(printer_uri)
+            
+            # printer-name
+            response.append(0x42)  # nameWithoutLanguage
+            response.extend(struct.pack('>H', 12))
+            response.extend(b'printer-name')
+            name = b'PrintDown'
+            response.extend(struct.pack('>H', len(name)))
+            response.extend(name)
+            
+            # printer-state
+            response.append(0x23)  # enum
+            response.extend(struct.pack('>H', 13))
+            response.extend(b'printer-state')
+            response.extend(struct.pack('>H', 4))
+            response.extend(struct.pack('>I', 3))  # idle
+        
+        response.append(0x03)  # end-of-attributes-tag
+        
+        # Send response
+        self.send_response(200)
+        self.send_header('Content-Type', 'application/ipp')
+        self.send_header('Content-Length', str(len(response)))
+        self.end_headers()
+        self.wfile.write(response)
+    
+    def log_message(self, format, *args):
+        """Override to customize logging."""
+        print(f"IPP: {self.client_address[0]} - {format % args}")
 
-                # Convert the file to markdown
-                markdown_text = markitdown.convert(temp_file_path)
-                os.remove(temp_file_path)
 
-                print(
-                    f"Converted IPP data to markdown:\n---\n{markdown_text[:100]}{'...' if len(markdown_text) > 100 else ''}\n---")
-                printer_manager.add_print_job(PrintJobType.TEXT, markdown_text, client_info)
-
-                return ippserver.ipp.STATUS_OK
-
-            except Exception as e:
-                print(f"Error handling IPP data from {client_info}: {e}")
-                return ippserver.ipp.STATUS_ERROR_INTERNAL
-
+def ipp_server():
+    """Simple IPP server using standard HTTP server."""
     print("Starting IPP server on 0.0.0.0:631")
-    ippserver.IPPPrinter(
-        name="PrintDown",
-        host="0.0.0.0",
-        port=631,
-        handler=MarkdownIPPHandler,
-        supported_formats=["application/pdf", "application/postscript", "text/plain"],
-    ).run()
+    server = HTTPServer(('0.0.0.0', 631), SimpleIPPHandler)
+    server.serve_forever()
 
 
 zeroconf = None
@@ -530,9 +650,6 @@ def stop_discovery():
         print("Unregistering services...")
         zeroconf.unregister_all_services()
         zeroconf.close()
-
-
-
 
 
 def create_sample_receipt():
@@ -641,3 +758,5 @@ if __name__ == "__main__":
     finally:
         stop_discovery()
         printer_manager.stop()
+
+
