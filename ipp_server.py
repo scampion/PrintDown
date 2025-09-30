@@ -307,7 +307,7 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
             response.append(0x22)  # boolean tag
             response.extend(struct.pack('>H', 26))  # "printer-is-accepting-jobs"
             response.extend(b'printer-is-accepting-jobs')
-            response.extend(struct.pack('>B', 1))  # Use 'B' for 1 byte
+            response.extend(struct.pack('>H', 1))  # MUST be 1 byte
 
             response.append(0x01)  # true
 
@@ -373,6 +373,8 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
         # End of attributes
         response.append(0x03)
 
+        self._debug_response(response)
+
         self.send_response(200)
         self.send_header('Content-Type', 'application/ipp')
         self.send_header('Content-Length', str(len(response)))
@@ -382,6 +384,50 @@ class SimpleIPPHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Override to customize logging."""
         print(f"IPP: {self.client_address[0]} - {format % args}")
+
+    def _debug_response(self, response):
+        """Debug IPP response structure."""
+        print("\n=== IPP Response Debug ===")
+        print(f"Total length: {len(response)} bytes")
+        pos = 0
+
+        # Version and status
+        print(f"Version: {response[0]}.{response[1]}")
+        print(f"Status: 0x{struct.unpack('>H', response[2:4])[0]:04x}")
+        print(f"Request ID: {struct.unpack('>I', response[4:8])[0]}")
+        pos = 8
+
+        # Parse attributes
+        while pos < len(response) and response[pos] != 0x03:
+            tag = response[pos]
+            pos += 1
+
+            if tag in [0x01, 0x02, 0x04, 0x05]:
+                group_names = {0x01: "operation", 0x02: "job", 0x04: "printer", 0x05: "unsupported"}
+                print(f"\n--- {group_names.get(tag, 'unknown')} attributes group ---")
+                continue
+
+            name_len = struct.unpack('>H', response[pos:pos + 2])[0]
+            pos += 2
+            name = response[pos:pos + name_len].decode('utf-8',
+                                                       errors='ignore') if name_len > 0 else "(additional-value)"
+            pos += name_len
+
+            value_len = struct.unpack('>H', response[pos:pos + 2])[0]
+            pos += 2
+
+            tag_names = {0x21: "integer", 0x22: "boolean", 0x23: "enum",
+                         0x42: "nameWithoutLanguage", 0x44: "keyword",
+                         0x45: "uri", 0x47: "charset", 0x48: "naturalLanguage", 0x49: "mimeMediaType"}
+            print(f"  {name} ({tag_names.get(tag, f'0x{tag:02x}')}): length={value_len}")
+
+            if tag == 0x22 and value_len != 1:
+                print(f"    ERROR: Boolean value length is {value_len}, should be 1!")
+
+            pos += value_len
+
+        print(f"\nEnd tag at position {pos}")
+        print("=========================\n")
 
 
 def create_ipp_server(printer_manager):
