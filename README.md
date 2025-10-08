@@ -124,3 +124,38 @@ cat receipt.txt | nc <server_ip> 9100
 
 	sudo iptables -t nat -A PREROUTING -p tcp --dport 631 -j REDIRECT --to-port 6310
 
+### Python TCP Writer
+
+```python 
+
+import sys
+import socket
+
+class TCPWriter:
+    def __init__(self, host, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((host, port))
+    
+    def write(self, message):
+        if message:
+            self.sock.sendall(message.encode('utf-8'))
+    
+    def flush(self):
+        pass  # TCP sockets don't need explicit flushing
+    
+    def close(self):
+        self.sock.close()
+
+# Create TCP writer
+tcp_out = TCPWriter('localhost', 9100)
+
+# Now you can use it with print
+print("Hello TCP!", file=tcp_out)
+print("Another message", file=tcp_out)
+
+# Clean up when done
+tcp_out.close()
+
+```
+	
+
