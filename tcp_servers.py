@@ -2,7 +2,6 @@
 import socket
 from printer_manager import PrintJobType
 
-
 def start_server(host, port, handler_func):
     """Generic TCP server that uses a given handler function."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
@@ -10,22 +9,29 @@ def start_server(host, port, handler_func):
         server_socket.bind((host, port))
         server_socket.listen()
         print(f"Server listening on {host}:{port}")
+        
         while True:
             try:
                 conn, addr = server_socket.accept()
                 with conn:
                     print(f"Connection from {addr} on port {port}")
+                    conn.settimeout(0.2)  # Process after 2 seconds of no data
                     full_data = b""
+                    
                     while True:
-                        chunk = conn.recv(1024)
-                        if not chunk:
+                        try:
+                            chunk = conn.recv(1024)
+                            if not chunk:
+                                break
+                            full_data += chunk
+                        except socket.timeout:
                             break
-                        full_data += chunk
-
+                    
                     if full_data:
                         handler_func(full_data, f"{addr[0]}:{addr[1]}")
             except Exception as e:
                 print(f"Server error on port {port}: {e}")
+
 
 
 def create_text_server(printer_manager):
